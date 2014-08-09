@@ -2,10 +2,9 @@
 
 require("slog2")
 
-SLOG = {}
 
-function SLOG.AddHook(ply)
-	if not slog2 or ply:IsBot() then return end
+local function S2_AddHook(ply)
+	if ply:IsBot() then return end
 	
 	local Done,err = slog2.Add( ply:EntIndex() ) --Needs a player, any player, to start the hook
 	
@@ -14,48 +13,14 @@ function SLOG.AddHook(ply)
 		return
 	end
 	
-	hook.Remove("PlayerInitialSpawn", "SLOG.AddHook")
+	hook.Remove("PlayerInitialSpawn", "S2_AddHook")
 end
-hook.Add("PlayerInitialSpawn", "SLOG.AddHook", SLOG.AddHook)
+hook.Add("PlayerInitialSpawn", "S2_AddHook", S2_AddHook)
 
-
-
-
-
-//Requested
-hook.Add("FileRequested", "FileRequested", function(what,sid)
-	what = tostring(what)
-	if not (what:Check("user_custom/") and what:EndsWith(".dat")) then
-		//Log
-		file.Append("file_rq.txt", "\r\n"..sid.." - "..what)
-		ErrorNoHalt("FileRequested: "..what.." "..sid)
-		return true
-	end
-end)
-
-//Received
-hook.Add("FileReceived", "FileReceived", function(what,sid)
-	what = tostring(what)
-	if not (what:Check("user_custom/") and what:EndsWith(".dat")) then
-		//Log
-		file.Append("file_rx.txt", "\r\n"..sid.." - "..what)
-		ErrorNoHalt("FileReceived: "..what.." "..sid)
-	end
-end)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+local function S2_OnCommand(cmd,sid)
+	--command,steamid, return bool to block
+end
+hook.Add("ExecuteStringCommand", "S2_OnCommand", S2_OnCommand)
 
 
 

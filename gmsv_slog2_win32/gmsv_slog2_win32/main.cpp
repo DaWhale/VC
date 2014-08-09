@@ -1,5 +1,6 @@
 /*
 	=== gmsv_slog2_win32 ===
+	*Hook all concommands*
 */
 
 

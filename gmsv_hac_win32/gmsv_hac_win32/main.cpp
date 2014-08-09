@@ -38,6 +38,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
+//Base64
+
+
 
 using namespace std;
 
@@ -100,57 +103,6 @@ LUA_FUNCTION(Command) {
 	delete [] szCmd;
 
 	return 0;
-}
-
-/*
-//CVar query
-LUA_FUNCTION(GetConVarNumber) {
-	if (!engine) {
-		Msg("gmsv_hac: No engine!\n");
-		return 0;
-	}
-	sv_Lua->CheckType(1, GLua::TYPE_ENTITY);
-	sv_Lua->CheckType(2, GLua::TYPE_STRING);
-	
-	ILuaObject *pEntity = sv_Lua->GetMetaTable("Entity", GLua::TYPE_ENTITY);
-		pEntity->GetMember("EntIndex")->Push();
-		
-		sv_Lua->GetObject(1)->Push();
-		
-		sv_Lua->Call(1,1);
-	pEntity->UnReference();
-	
-	int Index = sv_Lua->GetReturn(0)->GetInt();
-	
-	
-	sv_Lua->Push( engine->StartQueryCvarValue( engine->PEntityOfEntIndex(Index), sv_Lua->GetString(2) ) );
-	
-	return 1;
-}
-*/
-//CVar query
-LUA_FUNCTION(GetClientConVarValue) {
-	if (!engine) {
-		Msg("gmsv_hac: No engine!\n");
-		return 0;
-	}
-	sv_Lua->CheckType(1, GLua::TYPE_ENTITY);
-	sv_Lua->CheckType(2, GLua::TYPE_STRING);
-	
-	ILuaObject *pEntity = sv_Lua->GetMetaTable("Entity", GLua::TYPE_ENTITY);
-		pEntity->GetMember("EntIndex")->Push();
-		
-		sv_Lua->GetObject(1)->Push();
-		
-		sv_Lua->Call(1,1);
-	pEntity->UnReference();
-	
-	int Index = sv_Lua->GetReturn(0)->GetInt();
-	
-	
-	sv_Lua->Push( engine->GetClientConVarValue(Index, sv_Lua->GetString(2) ) );
-	
-	return 1;
 }
 
 
@@ -542,11 +494,161 @@ LUA_FUNCTION(FileFind)
 }
 
 
+#include <iostream>
+
+__int64 TransverseDirectory(string path)
+{
+    WIN32_FIND_DATA data;
+    __int64 size = 0;
+    string fname = path + "\\*.*";
+    HANDLE h = FindFirstFile(fname.c_str(),&data);
+    if(h != INVALID_HANDLE_VALUE)
+    {
+        do {
+            if( (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) )
+            {
+                // make sure we skip "." and "..".  Have to use strcmp here because
+                // some file names can start with a dot, so just testing for the 
+                // first dot is not suffient.
+                if( strcmp(data.cFileName,".") != 0 &&strcmp(data.cFileName,"..") != 0)
+                {
+                    // We found a sub-directory, so get the files in it too
+                    fname = path + "\\" + data.cFileName;
+                    // recurrsion here!
+                    size += TransverseDirectory(fname);
+                }
+
+            }
+            else
+            {
+                LARGE_INTEGER sz;
+                // All we want here is the file size.  Since file sizes can be larger
+                // than 2 gig, the size is reported as two DWORD objects.  Below we
+                // combine them to make one 64-bit integer.
+                sz.LowPart = data.nFileSizeLow;
+                sz.HighPart = data.nFileSizeHigh;
+                size += sz.QuadPart;
+
+            }
+        }while( FindNextFile(h,&data) != 0);
+        FindClose(h);
+
+    }
+    return size;
+}
+
+//DirSize
+LUA_FUNCTION(DirSize) {
+	sv_Lua->CheckType(1,GLua::TYPE_STRING);
+	string fullPath;
+	
+	if (sv_Lua->GetString(1)[1] == ':') {
+		fullPath = sv_Lua->GetString(1);
+	} else {
+		char workingDir [256];
+		_getcwd(workingDir, 256);
+		
+		fullPath = workingDir;
+		fullPath += "\\garrysmod\\";
+		fullPath += sv_Lua->GetString(1);
+	}
+	
+	
+    __int64 f_size = 0;
+    f_size = TransverseDirectory( fullPath.c_str() );
+	
+	sv_Lua->Push( (float)f_size );
+	
+	return 1;
+}
+
+
+
+
+
+
+#include <stdlib.h>
+
+void decodeblock(char *input, char *output, int oplen) {
+	char decodedstr[5] = "";
+	
+	decodedstr[0] = input[0] << 2 | input[1] >> 4;
+	decodedstr[1] = input[1] << 4 | input[2] >> 2;
+	decodedstr[2] = input[2] << 6 | input[3] >> 0;
+	
+	strncat(output, decodedstr, oplen - strlen(output) );
+}
+
+
+char BASE64CHARSET[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+void C_Base64Decode(char *input, char *output, int oplen) {
+	char decoderinput[5]	= "";
+	char* charval			= 0;
+	int index 				= 0;
+	int asciival 			= 0;
+	int computeval			= 0;
+	int iplen 				= 0;
+	
+	iplen = strlen(input);
+	while(index < iplen){
+		asciival = (int)input[index];
+		if (asciival == '='){
+			decodeblock(decoderinput, output, oplen);
+			break;
+			
+		} else {
+			charval = strchr(BASE64CHARSET, asciival);
+			
+			if(charval){
+				decoderinput[computeval] = charval - BASE64CHARSET;
+				computeval = (computeval + 1) % 4;
+				
+				if(computeval == 0){
+					decodeblock(decoderinput, output, oplen);
+					
+					decoderinput[0] = decoderinput[1] =
+					decoderinput[2] = decoderinput[3] = 0;
+				}
+			}
+		}
+		index++;
+   }
+}
+
+#define BUFFFERLEN 5242880 //5MB
+
+//Base64
+LUA_FUNCTION(Base64Decode) {
+	sv_Lua->CheckType(1,GLua::TYPE_STRING);
+	const char* Input = sv_Lua->GetString(1);
+	
+	char cInput[BUFFFERLEN + 1] = "";
+	char cOutput[BUFFFERLEN + 1] = "";
+	sprintf(cInput, "%s", Input);
+	
+	C_Base64Decode(cInput, cOutput, BUFFFERLEN);
+	
+	if (!cOutput) {
+		sv_Lua->Push(false);
+		return 1;
+	}
+	
+	sv_Lua->Push( (const char*)cOutput );
+	return 1;
+}
+
+
+
+
+
+
 GMOD_MODULE(Open, Close);
 
 int Open(lua_State* L) {
 	sv_Lua = Lua();
 	
+	//Engine
 	CreateInterfaceFn interfaceFactory = Sys_GetFactory("engine.dll");
 	engine = (IVEngineServer*)interfaceFactory(INTERFACEVERSION_VENGINESERVER, NULL);
 	
@@ -555,30 +657,31 @@ int Open(lua_State* L) {
 	}
 	
 	
-	ILuaObject *pMeta = sv_Lua->GetMetaTable("Player", GLua::TYPE_ENTITY);
-		pMeta->SetMember("GetClientConVarValue", GetClientConVarValue);
-	pMeta->UnReference();
-	
-	
 	sv_Lua->NewGlobalTable("hac");
 	ILuaObject* hac = sv_Lua->GetGlobal("hac");
-		hac->SetMember("Command", Command);
-		hac->SetMember("WinCMD", WinCMD);
+		//Windows
+		hac->SetMember("Command", 		Command);
+		hac->SetMember("WinCMD", 		WinCMD);
 		
-		hac->SetMember("Copy", CopyCache);
-		hac->SetMember("Exists", FileDoesExist);
-		hac->SetMember("MKDIR", MakeDirectory);
-		hac->SetMember("RMDIR", RemoveDirectory);
-		hac->SetMember("IsDir", DirDoesExist);
-		hac->SetMember("Delete", DeleteCache);
-		hac->SetMember("Remove", DeleteCache);
-		hac->SetMember("RPF", NotRPF);
-		hac->SetMember("Read", Read);
-		hac->SetMember("Rename", Rename);
-		hac->SetMember("Write", Write);
-		hac->SetMember("Size", Size);
-		hac->SetMember("Find", FileFind);
-		hac->SetMember("Time", TimeCache);
+		//Misc
+		hac->SetMember("RPF", 			NotRPF);
+		hac->SetMember("Base64Decode",	Base64Decode);
+		
+		//File
+		hac->SetMember("Copy", 		CopyCache);
+		hac->SetMember("Exists", 	FileDoesExist);
+		hac->SetMember("MKDIR", 	MakeDirectory);
+		hac->SetMember("RMDIR", 	RemoveDirectory);
+		hac->SetMember("IsDir", 	DirDoesExist);
+		hac->SetMember("Delete", 	DeleteCache);
+		hac->SetMember("Remove", 	DeleteCache);
+		hac->SetMember("Read", 		Read);
+		hac->SetMember("Rename", 	Rename);
+		hac->SetMember("Write", 	Write);
+		hac->SetMember("Size",		Size);
+		hac->SetMember("Find", 		FileFind);
+		hac->SetMember("DirSize", 	DirSize);
+		hac->SetMember("Time", 		TimeCache);
 	hac->UnReference();
 	
 	return 0;
