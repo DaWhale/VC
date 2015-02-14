@@ -119,7 +119,7 @@ LUA_FUNCTION(Read) {
 	//Read
 	ReadFile(hDevice, Buff,Bytes, &TotRead, NULL);
 	if (TotRead) {
-		LUA->PushString( (const char*)Buff, sizeof(Buff) );
+		LUA->PushString( (const char*)Buff, Bytes);
 		LUA->PushNumber(TotRead);
 		
 	} else {

@@ -1,4 +1,6 @@
 
+//Arduino VFD BANBox control
+
 require("serial")
 
 print("! IsValid: ", serial.IsValid() )
@@ -9,22 +11,116 @@ print("! IsValid: ", serial.IsValid() )
 serial.Open("COM2", 1,1) --Read timeout, Write timeout, do not set too high, blocks main thread
 
 
-//Will read 1 byte at a time from the serial buffer, add proper protocol here!
+
+//Ring buffer
+local MaxCmdLen = 128
+local buffer = {}
+
+function buffer:Add(v)
+  table.insert(self, 1, v)
+  self[ MaxCmdLen + 1 ] = nil
+end
+
+function buffer:Top()
+	return self[1]
+end
+
+function buffer:Bottom()
+	return buffer[ #buffer ]
+end
+
+function buffer:Remove(k)
+	for i=0,k do
+		self[i] = nil
+	end
+end
+
+function buffer:Reset()
+	for i=0, #self do
+		self[i] = nil
+	end
+end
+
+//Will read 1 byte at a time from the serial buffer
 hook.Add("Think", "Serial", function()
 	local Got,Size = serial.Read(1)
 	
 	if Got then
-		MsgC( Color(255,255,0), Got)
+		MsgC( Color(255,255,0), --[["("..Size..") "..]]Got)
 		
-		--fixme, add actual buffer here
+		--print("! size: ", #Got, Got:byte())
+		
+		buffer:Add(Got)
+		
+		if Got == "\n" then
+			print("! end command")
+			
+			local Cmd 	= ""
+			for k = #buffer, 1, -1 do
+				local v = buffer[k]
+				if v == "\n" then continue end
+				
+				Cmd = Cmd..v
+			end
+			
+			buffer:Reset()
+			
+			print("! whole Cmd >"..Cmd.."<")
+		end
 	end
 end)
 
 
 
 
-do return end
-//Arduino VFD control, ignore
+
+//Ring
+local Events = {
+	--Quick pulse
+	--[[
+	[1] = "1",
+	[2] = "0",
+	
+	[9] = "1",
+	[10] = "0",
+	]]
+	
+	--Quick pulse 2
+	--[[
+	[1] = "1",
+	[2] = "0",
+	
+	[7] = "1",
+	[8] = "0",
+	]]
+	
+	--Proper ring
+	[1] = "1",
+	[5] = "0",
+	
+	[9] = "1",
+	[13] = "0",
+}
+
+local Ring = 1
+timer.Create("Ringer", 0.1, 0, function()
+	if Ring > 30 then
+		Ring = 1
+		--print("")
+	end
+	
+	local This = Events[ Ring ]
+	if This then
+		serial.Command("r", "5", This)
+		print("! CALL: ", Ring, This)
+	end
+	
+	--print("! Ring: ", Ring)
+	Ring = Ring + 1
+end)
+
+
+
 
 
 //Clear VFD display on arduino
